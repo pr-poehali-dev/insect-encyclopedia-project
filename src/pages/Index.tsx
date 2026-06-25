@@ -10,12 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import {
-  INSECTS,
-  ORDERS,
-  CREDIT_PACKS,
-  type Insect,
-} from '@/data/insects';
+import { INSECTS, ORDERS, type Insect } from '@/data/insects';
 
 const HERO_IMG =
   'https://cdn.poehali.dev/projects/888e6ceb-92a0-4237-a1ec-a0c07d77b40f/files/ae53a0f0-9cfb-45d5-9a69-a75b115430eb.jpg';
@@ -25,7 +20,7 @@ const NAV = [
   { id: 'catalog', label: 'Каталог' },
   { id: 'taxonomy', label: 'Классификация' },
   { id: 'profile', label: 'Профиль' },
-  { id: 'shop', label: 'Магазин' },
+  { id: 'farm', label: 'Монетизация' },
   { id: 'contacts', label: 'Контакты' },
 ];
 
@@ -45,6 +40,14 @@ const Index = () => {
   const [active, setActive] = useState<Insect | null>(null);
   const [globalUnlocks, setGlobalUnlocks] = useState(1284);
   const [livePulse, setLivePulse] = useState(false);
+  const [lastHarvest, setLastHarvest] = useState<number | null>(() => {
+    const v = localStorage.getItem('ento_last_harvest');
+    return v ? Number(v) : null;
+  });
+  const [lastReward, setLastReward] = useState<number | null>(() => {
+    const v = localStorage.getItem('ento_last_reward');
+    return v ? Number(v) : null;
+  });
 
   // Real-time global unlock activity simulation
   useEffect(() => {
@@ -93,13 +96,25 @@ const Index = () => {
     setActive(insect);
   };
 
-  const buyPack = (credits: number) => {
-    setCredits((c) => c + credits);
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const canHarvest = !lastHarvest || Date.now() - lastHarvest >= DAY_MS;
+
+  const harvest = () => {
+    if (!canHarvest) return;
+    const reward = Math.floor(Math.random() * 101); // 0..100
+    const now = Date.now();
+    setCredits((c) => c + reward);
+    setLastHarvest(now);
+    setLastReward(reward);
+    localStorage.setItem('ento_last_harvest', String(now));
+    localStorage.setItem('ento_last_reward', String(reward));
     toast({
-      title: 'Баланс пополнен',
-      description: `Начислено ${credits} кредитов.`,
+      title: reward > 0 ? 'Урожай собран!' : 'Сегодня пусто',
+      description:
+        reward > 0
+          ? `Ферма принесла ${reward} кредитов.`
+          : 'Насекомые отдыхали. Загляните завтра!',
     });
-    setSection('catalog');
   };
 
   const goto = (id: string) => {
@@ -307,7 +322,14 @@ const Index = () => {
           />
         )}
 
-        {section === 'shop' && <Shop onBuy={buyPack} />}
+        {section === 'farm' && (
+          <Farm
+            canHarvest={canHarvest}
+            onHarvest={harvest}
+            lastHarvest={lastHarvest}
+            lastReward={lastReward}
+          />
+        )}
 
         {section === 'contacts' && <Contacts toast={toast} />}
       </main>
@@ -595,12 +617,12 @@ const Profile = ({
           кредитов на счету
         </p>
         <Button
-          onClick={() => goto('shop')}
+          onClick={() => goto('farm')}
           variant="outline"
           size="sm"
           className="mt-4 rounded-sm font-sans border-accent text-accent"
         >
-          Пополнить
+          Собрать на ферме
         </Button>
       </div>
       <div className="border border-border bg-card rounded-sm p-6">
@@ -655,47 +677,118 @@ const Profile = ({
   </section>
 );
 
-const Shop = ({ onBuy }: { onBuy: (c: number) => void }) => (
-  <section className="animate-fade-in">
-    <SectionTitle
-      kicker="Emporium"
-      title="Магазин кредитов"
-      sub="Кредиты нужны для разблокировки карточек насекомых. Выберите пакет."
-    />
-    <div className="grid sm:grid-cols-3 gap-6">
-      {CREDIT_PACKS.map((p, idx) => (
-        <div
-          key={p.id}
-          className={`border rounded-sm p-8 text-center bg-card relative ${
-            idx === 1 ? 'border-accent' : 'border-border'
-          }`}
-        >
-          {idx === 1 && (
-            <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-accent text-accent-foreground text-[10px] uppercase tracking-widest font-sans px-3 py-1 rounded-sm">
-              Популярный
-            </span>
-          )}
-          <Icon name="Coins" size={28} className="text-accent mx-auto mb-3" />
-          <p className="font-display text-5xl font-700">{p.credits}</p>
-          <p className="text-sm text-muted-foreground font-sans mb-1">
-            кредитов
-          </p>
-          {p.bonus && (
-            <p className="text-xs text-accent font-sans mb-3">{p.bonus}</p>
-          )}
-          <p className="font-display text-2xl my-4">{p.price}</p>
-          <Button
-            onClick={() => onBuy(p.credits)}
-            className="w-full rounded-sm font-sans"
-            variant={idx === 1 ? 'default' : 'outline'}
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const fmt = (ms: number) => {
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+};
+
+const Farm = ({
+  canHarvest,
+  onHarvest,
+  lastHarvest,
+  lastReward,
+}: {
+  canHarvest: boolean;
+  onHarvest: () => void;
+  lastHarvest: number | null;
+  lastReward: number | null;
+}) => {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const remaining =
+    lastHarvest && !canHarvest
+      ? Math.max(0, lastHarvest + DAY_MS - now)
+      : 0;
+
+  return (
+    <section className="animate-fade-in">
+      <SectionTitle
+        kicker="Cultura"
+        title="Монетизация кредитов"
+        sub="Раз в сутки собирайте урожай с энто-фермы и получайте случайное количество кредитов — от 0 до 100."
+      />
+
+      <div className="max-w-xl mx-auto">
+        <div className="border border-accent rounded-sm bg-card p-10 text-center relative overflow-hidden">
+          <div className="absolute top-0 left-0 right-0 h-1 deco-rule opacity-60" />
+
+          <div
+            className={`text-8xl mb-4 inline-block ${
+              canHarvest ? 'animate-count-pulse' : 'grayscale opacity-70'
+            }`}
           >
-            Купить
-          </Button>
+            🐜
+          </div>
+
+          <h3 className="font-display text-3xl font-600 mb-2">
+            Энтомологическая ферма
+          </h3>
+
+          {lastReward !== null && (
+            <p className="text-sm text-muted-foreground font-sans mb-6">
+              Прошлый сбор:{' '}
+              <span className="text-accent font-600">{lastReward} кр.</span>
+            </p>
+          )}
+
+          {canHarvest ? (
+            <>
+              <p className="text-foreground/75 mb-6">
+                Урожай созрел! Соберите кредиты прямо сейчас.
+              </p>
+              <Button
+                onClick={onHarvest}
+                size="lg"
+                className="rounded-sm font-sans"
+              >
+                <Icon name="Sprout" size={18} className="mr-2" />
+                Собрать урожай
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-foreground/75 mb-4">
+                Ферма восстанавливается. Возвращайтесь через:
+              </p>
+              <div className="font-display text-5xl font-700 tabular-nums text-accent mb-6">
+                {fmt(remaining)}
+              </div>
+              <Button size="lg" disabled className="rounded-sm font-sans">
+                <Icon name="Clock" size={18} className="mr-2" />
+                Недоступно
+              </Button>
+            </>
+          )}
         </div>
-      ))}
-    </div>
-  </section>
-);
+
+        <div className="grid grid-cols-3 gap-4 mt-6">
+          {[
+            { i: 'Gift', l: '0–100 кр.', s: 'за один сбор' },
+            { i: 'CalendarCheck', l: 'Раз в день', s: 'обновление' },
+            { i: 'Dice5', l: 'Случайно', s: 'каждый раз' },
+          ].map((c) => (
+            <div
+              key={c.l}
+              className="border border-border rounded-sm bg-card p-4 text-center"
+            >
+              <Icon name={c.i} size={20} className="text-accent mx-auto mb-2" />
+              <p className="font-display text-lg font-600">{c.l}</p>
+              <p className="text-xs text-muted-foreground font-sans">{c.s}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
 
 const Contacts = ({
   toast,
